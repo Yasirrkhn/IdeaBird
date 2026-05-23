@@ -1,13 +1,155 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>fondue-restaurant</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IdeaBird - Screenshot to Tweet Formatter</title>
+  <meta name="description" content="Upload a screenshot, extract text with OCR, and shape it into polished tweet variations with AI." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header" id="header">
+      <div class="header-inner">
+        <a class="brand" href="#step-upload" aria-label="IdeaBird home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="img">
+              <path d="M25.5 7.3c-4.6.3-8.3 2.2-11.2 5.5l-7.2-1.3 4.8 5.4-3.2 7.3 7-3.4c3.7 2.8 7.8 3.6 12.2 2.3-2.7-1.3-4.4-3.4-5.2-6.2 3.5-2 5.6-5 6.3-9.1-1.1.4-2.3.2-3.5-.5Z" />
+              <path d="M17.2 13.1c1.3-1.4 2.9-2.2 4.8-2.4" />
+            </svg>
+          </span>
+          <span class="brand-copy">
+            <span class="brand-name">IdeaBird</span>
+            <span class="brand-kicker">Screenshot studio</span>
+          </span>
+        </a>
+        <div class="header-status" aria-label="Workflow">
+          <span>Capture</span>
+          <span>Refine</span>
+          <span>Publish</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="main" id="main">
+      <section class="step step-upload active" id="step-upload">
+        <div class="intro-grid">
+          <div class="step-header">
+            <span class="eyebrow">AI writing desk</span>
+            <h1>Turn screenshot ideas into publish-ready tweets.</h1>
+            <p class="step-desc">IdeaBird extracts the text, gives you room to clean it up, then shapes it into five polished angles.</p>
+          </div>
+          <div class="upload-zone" id="upload-zone" tabindex="0" role="button" aria-label="Upload screenshot">
+            <div class="upload-zone-content">
+              <div class="upload-icon" aria-hidden="true">
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <path d="m17 8-5-5-5 5" />
+                  <path d="M12 3v12" />
+                </svg>
+              </div>
+              <div>
+                <p class="upload-text">Drop a screenshot here</p>
+                <p class="upload-subtext">Click to browse, drag an image, or paste from your clipboard.</p>
+              </div>
+              <p class="upload-formats">PNG, JPG, WEBP, BMP, GIF up to 10MB</p>
+            </div>
+            <input type="file" id="file-input" accept="image/*" hidden />
+          </div>
+        </div>
+
+        <aside class="signal-panel" aria-label="Output overview">
+          <div>
+            <span class="signal-value">5</span>
+            <span class="signal-label">tweet styles</span>
+          </div>
+          <div>
+            <span class="signal-value">280</span>
+            <span class="signal-label">character guard</span>
+          </div>
+          <div>
+            <span class="signal-value">OCR</span>
+            <span class="signal-label">built in</span>
+          </div>
+        </aside>
+      </section>
+
+      <section class="step step-extract" id="step-extract">
+        <div class="step-header compact">
+          <span class="eyebrow">Review draft source</span>
+          <h2>Clean up the extracted text.</h2>
+          <p class="step-desc">Adjust the OCR result before IdeaBird turns it into tweet variations.</p>
+        </div>
+
+        <div class="extract-layout">
+          <div class="preview-card">
+            <div class="panel-header">
+              <span>Screenshot</span>
+              <span class="panel-meta">Source image</span>
+            </div>
+            <div class="preview-frame">
+              <img id="preview-image" src="" alt="Uploaded screenshot" />
+            </div>
+          </div>
+
+          <div class="text-card">
+            <div class="panel-header">
+              <span>Extracted text</span>
+              <span class="char-count" id="char-count">0 chars</span>
+            </div>
+            <textarea id="extracted-text" placeholder="Extracting text..." rows="10"></textarea>
+            <div class="ocr-progress" id="ocr-progress">
+              <div class="ocr-progress-bar" id="ocr-progress-bar"></div>
+              <span class="ocr-progress-text" id="ocr-progress-text">Initializing OCR...</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-actions">
+          <button class="btn btn-ghost" id="btn-back-upload" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+            Back
+          </button>
+          <button class="btn btn-primary" id="btn-generate" type="button" disabled>
+            Generate Tweets
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
+          </button>
+        </div>
+      </section>
+
+      <section class="step step-results" id="step-results">
+        <div class="step-header compact">
+          <span class="eyebrow">Ready to use</span>
+          <h2>Your tweet variations.</h2>
+          <p class="step-desc">Select a card or use the copy button to send a version to your clipboard.</p>
+        </div>
+        <div class="tweets-grid" id="tweets-grid"></div>
+        <div class="step-actions center">
+          <button class="btn btn-ghost" id="btn-regenerate" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-9 9 8.8 8.8 0 0 1-6-2.3" /><path d="M3 12a9 9 0 0 1 15-6.7" /><path d="M3 17v4h4" /><path d="M21 7V3h-4" /></svg>
+            Regenerate
+          </button>
+          <button class="btn btn-primary" id="btn-start-over" type="button">
+            Start Over
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+          </button>
+        </div>
+      </section>
+
+      <div class="generating-overlay" id="generating-overlay">
+        <div class="generating-content">
+          <div class="generating-spinner"></div>
+          <p class="generating-text">IdeaBird is shaping your tweets...</p>
+          <p class="generating-subtext">This usually takes a few seconds.</p>
+        </div>
+      </div>
+
+      <div class="toast" id="toast"></div>
+    </main>
+  </div>
+  <script type="module" src="/main.js"></script>
+</body>
 </html>

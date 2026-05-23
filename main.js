@@ -22,12 +22,7 @@ const toast = document.getElementById('toast');
 
 // --- State ---
 let currentFile = null;
-
-function debugLog({ runId, hypothesisId, location, message, data }) {
-  // #region agent log
-  fetch('http://127.0.0.1:7894/ingest/cc16c2fd-d06d-412c-83d2-b285d3358261',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'344ed2'},body:JSON.stringify({sessionId:'344ed2',runId,hypothesisId,location,message,data,timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-}
+let isGenerating = false;
 
 // --- Step Navigation ---
 function goToStep(step) {
@@ -48,11 +43,11 @@ function validateFile(file) {
   if (!file) return false;
   const validTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/bmp', 'image/gif'];
   if (!validTypes.includes(file.type)) {
-    showToast('Please upload an image file (PNG, JPG, WEBP)', 'error');
+    showToast('Upload an image file: PNG, JPG, WEBP, BMP, or GIF.', 'error');
     return false;
   }
   if (file.size > 10 * 1024 * 1024) {
-    showToast('File is too large. Max size is 10MB.', 'error');
+    showToast('That file is larger than 10MB.', 'error');
     return false;
   }
   return true;
@@ -95,7 +90,7 @@ async function handleFile(file) {
 
     const text = result.data.text.trim();
     if (!text) {
-      showToast('No text found in this screenshot. Try a different one.', 'error');
+      showToast('IdeaBird could not find text in this screenshot.', 'error');
       ocrProgress.classList.remove('active');
       return;
     }
@@ -106,7 +101,7 @@ async function handleFile(file) {
     ocrProgress.classList.remove('active');
   } catch (err) {
     console.error('OCR error:', err);
-    showToast('OCR failed. Please try a different image.', 'error');
+    showToast('OCR failed. Try a cleaner image.', 'error');
     ocrProgress.classList.remove('active');
   }
 }
@@ -157,49 +152,21 @@ extractedText.addEventListener('input', () => {
 // --- Generate Tweets ---
 async function generateTweets() {
   const text = extractedText.value.trim();
-  if (!text) return;
-  const runId = `client-${Date.now()}`;
+  if (!text || isGenerating) return;
 
-  debugLog({
-    runId,
-    hypothesisId: 'H5',
-    location: 'main.js:161',
-    message: 'Generate button triggered',
-    data: { textLength: text.length },
-  });
-
+  isGenerating = true;
+  btnGenerate.disabled = true;
+  btnRegenerate.disabled = true;
   generatingOverlay.classList.add('active');
 
   try {
-    debugLog({
-      runId,
-      hypothesisId: 'H6',
-      location: 'main.js:171',
-      message: 'Sending /api/generate request',
-      data: { path: '/api/generate' },
-    });
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
 
-    debugLog({
-      runId,
-      hypothesisId: 'H6',
-      location: 'main.js:181',
-      message: 'Received /api/generate response',
-      data: { ok: res.ok, status: res.status, statusText: res.statusText },
-    });
-
     const data = await res.json();
-    debugLog({
-      runId,
-      hypothesisId: 'H7',
-      location: 'main.js:189',
-      message: 'Parsed JSON response body',
-      data: { hasError: Boolean(data?.error), tweetCount: Array.isArray(data?.tweets) ? data.tweets.length : null, error: data?.error || null },
-    });
 
     if (!res.ok) {
       throw new Error(data.error || 'Failed to generate tweets');
@@ -208,16 +175,12 @@ async function generateTweets() {
     renderTweets(data.tweets);
     goToStep(stepResults);
   } catch (err) {
-    debugLog({
-      runId,
-      hypothesisId: 'H8',
-      location: 'main.js:205',
-      message: 'Generate flow caught error',
-      data: { name: err?.name || null, message: err?.message || null },
-    });
     console.error('Generate error:', err);
     showToast(err.message || 'Failed to generate tweets. Please try again.', 'error', 5000);
   } finally {
+    isGenerating = false;
+    btnGenerate.disabled = extractedText.value.trim().length === 0;
+    btnRegenerate.disabled = false;
     generatingOverlay.classList.remove('active');
   }
 }
@@ -273,7 +236,7 @@ async function copyTweet(text, card) {
     card.querySelector('.copy-btn').innerHTML = `
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
       Copied!`;
-    showToast('Tweet copied to clipboard!', 'success');
+    showToast('Tweet copied to clipboard.', 'success');
   } catch {
     showToast('Failed to copy. Please select and copy manually.', 'error');
   }
