@@ -19,15 +19,23 @@ const btnRegenerate = document.getElementById('btn-regenerate');
 const tweetsGrid = document.getElementById('tweets-grid');
 const generatingOverlay = document.getElementById('generating-overlay');
 const toast = document.getElementById('toast');
+const workflowStatus = document.getElementById('workflow-status');
 
 // --- State ---
 let currentFile = null;
 let isGenerating = false;
 
 // --- Step Navigation ---
+function getWorkflowStep(step) {
+  if (step === stepExtract) return 'edit';
+  if (step === stepResults) return 'copy';
+  return 'upload';
+}
+
 function goToStep(step) {
   [stepUpload, stepExtract, stepResults].forEach(s => s.classList.remove('active'));
   step.classList.add('active');
+  workflowStatus.dataset.step = getWorkflowStep(step);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 

@@ -59,6 +59,19 @@ const AI_PHRASES = [
   'at all',
 ];
 
+const GENERIC_SOCIAL_PHRASES = [
+  'truth matters',
+  'this matters',
+  'people need to know',
+  'wake up',
+  'the stakes are high',
+  'everything is changing',
+  'pay attention',
+  'big if true',
+  'let that sink in',
+  'this changes everything',
+];
+
 const EMOTION_WORDS = [
   'afraid',
   'fear',
@@ -126,26 +139,35 @@ const NATURAL_OPENERS = [
 ];
 
 const STYLE_ALIASES = new Map([
-  ['contrarian', 'Contrarian'],
-  ['hot take', 'Contrarian'],
-  ['quiet truth', 'Quiet Truth'],
-  ['truth', 'Quiet Truth'],
-  ['personal', 'Personal'],
-  ['story', 'Personal'],
-  ['storyteller', 'Personal'],
-  ['tension', 'Tension'],
-  ['conflict', 'Tension'],
-  ['minimal', 'Minimal'],
-  ['minimalist', 'Minimal'],
+  ['clear', 'Clear Rewrite'],
+  ['clear rewrite', 'Clear Rewrite'],
+  ['rewrite', 'Clear Rewrite'],
+  ['neutral', 'Neutral Summary'],
+  ['neutral summary', 'Neutral Summary'],
+  ['summary', 'Neutral Summary'],
+  ['viral', 'Viral Framing'],
+  ['viral framing', 'Viral Framing'],
+  ['emotional', 'Emotional Framing'],
+  ['emotional framing', 'Emotional Framing'],
+  ['news', 'News Style'],
+  ['news style', 'News Style'],
+  ['contrarian', 'Contrarian Angle'],
+  ['contrarian angle', 'Contrarian Angle'],
+  ['hot take', 'Contrarian Angle'],
+  ['simplified', 'Simplified Explanation'],
+  ['simple', 'Simplified Explanation'],
+  ['simplified explanation', 'Simplified Explanation'],
 ]);
 
-export function buildTweetPipeline(rawModelOutput) {
+export function buildTweetPipeline(rawModelOutput, sourceText = '') {
   const candidates = parseTweetCandidates(rawModelOutput);
-  const ranked = rankTweetCandidatesInternal(candidates, { includeRejected: true });
-  const selected = fillToFive(selectDiverseTweets(ranked), ranked);
+  const sourceInsights = extractSourceInsights(sourceText);
+  const ranked = rankTweetCandidatesInternal(candidates, { includeRejected: true, sourceInsights });
+  const targetCount = STYLE_LANES.length;
+  const selected = fillToTarget(selectDiverseTweets(ranked, targetCount), ranked, targetCount);
 
-  if (selected.length !== 5) {
-    throw new Error(`Could not select 5 high-quality tweet variations. Parsed ${candidates.length}, ranked ${ranked.length}, selected ${selected.length}.`);
+  if (selected.length !== targetCount) {
+    throw new Error(`Could not select ${targetCount} high-quality rewrite variations. Parsed ${candidates.length}, ranked ${ranked.length}, selected ${selected.length}.`);
   }
 
   return {
@@ -159,17 +181,17 @@ export function buildTweetPipeline(rawModelOutput) {
   };
 }
 
-function fillToFive(selected, rankedCandidates) {
+function fillToTarget(selected, rankedCandidates, targetCount) {
   const output = [...selected];
 
   for (const candidate of rankedCandidates) {
-    if (output.length >= 5) break;
+    if (output.length >= targetCount) break;
     if (!output.includes(candidate)) {
       output.push(candidate);
     }
   }
 
-  return output.slice(0, 5);
+  return output.slice(0, targetCount);
 }
 
 export function parseTweetCandidates(raw) {
@@ -184,20 +206,20 @@ export function parseTweetCandidates(raw) {
 }
 
 export function rankTweetCandidates(candidates) {
-  return rankTweetCandidatesInternal(candidates, { includeRejected: false });
+  return rankTweetCandidatesInternal(candidates, { includeRejected: false, sourceInsights: extractSourceInsights('') });
 }
 
-function rankTweetCandidatesInternal(candidates, { includeRejected }) {
+function rankTweetCandidatesInternal(candidates, { includeRejected, sourceInsights }) {
   return candidates
     .map((candidate, index) => {
-      const evaluation = evaluateTweet(candidate, candidates);
+      const evaluation = evaluateTweet(candidate, candidates, sourceInsights);
       return { ...candidate, index, evaluation };
     })
     .filter(({ evaluation }) => includeRejected || !evaluation.rejected)
     .sort((a, b) => b.evaluation.total - a.evaluation.total);
 }
 
-export function evaluateTweet(candidate, allCandidates = []) {
+export function evaluateTweet(candidate, allCandidates = [], sourceInsights = extractSourceInsights('')) {
   const tweet = normalizeWhitespace(candidate.tweet);
   const lower = tweet.toLowerCase();
   const words = lower.match(/[a-z0-9']+/g) || [];
@@ -206,11 +228,14 @@ export function evaluateTweet(candidate, allCandidates = []) {
   const avgSentenceLength = wordCount / sentenceCount;
   const realismScore = controlledImperfectionScore(tweet, lower, words);
   const polishPenalty = overPolishedPenalty(tweet, lower);
+  const contextScore = sourceContextScore(tweet, sourceInsights);
+  const vaguenessPenalty = vagueRewritePenalty(tweet, lower, sourceInsights);
 
   const phrasePenalty =
     countMatches(lower, CLICHE_PHRASES) * 13 +
     countMatches(lower, CORPORATE_PHRASES) * 16 +
     countMatches(lower, AI_PHRASES) * 10 +
+    countMatches(lower, GENERIC_SOCIAL_PHRASES) * 15 +
     polishPenalty;
 
   const humanLikeness =
@@ -240,12 +265,13 @@ export function evaluateTweet(candidate, allCandidates = []) {
 
   const punchiness =
     18 +
-    (tweet.length <= 180 ? 9 : 0) +
-    (tweet.length <= 120 ? 4 : 0) +
+    (tweet.length >= 60 && tweet.length <= 220 ? 11 : 0) +
+    (tweet.length <= 180 ? 5 : 0) +
     (avgSentenceLength <= 11 ? 7 : 0) -
     (tweet.length > 240 ? 14 : 0) -
+    (tweet.length < 45 ? 10 : 0) -
     (wordCount > 52 ? 10 : 0) -
-    (tweet.includes(':') ? 4 : 0);
+    (tweet.includes(':') && candidate.style !== 'News Style' ? 3 : 0);
 
   const platformNative =
     18 +
@@ -259,17 +285,31 @@ export function evaluateTweet(candidate, allCandidates = []) {
   const rejected =
     tweet.length === 0 ||
     tweet.length > 280 ||
+    tweet.length < 35 ||
     phrasePenalty >= 28 ||
+    vaguenessPenalty >= 18 ||
     looksLikeLinkedIn(lower) ||
     overExplains(tweet);
 
   return {
-    total: Math.round(humanLikeness + emotionalImpact + originality + punchiness + platformNative - phrasePenalty - (rejected ? 30 : 0)),
+    total: Math.round(
+      humanLikeness +
+      emotionalImpact +
+      originality +
+      punchiness +
+      platformNative +
+      contextScore -
+      phrasePenalty -
+      vaguenessPenalty -
+      (rejected ? 30 : 0)
+    ),
     humanLikeness: Math.round(humanLikeness),
     emotionalImpact: Math.round(emotionalImpact),
     originality: Math.round(originality),
     punchiness: Math.round(punchiness),
     platformNative: Math.round(platformNative),
+    context: Math.round(contextScore),
+    vaguenessPenalty,
     phrasePenalty,
     realismScore,
     polishPenalty,
@@ -277,7 +317,7 @@ export function evaluateTweet(candidate, allCandidates = []) {
   };
 }
 
-export function selectDiverseTweets(rankedCandidates) {
+export function selectDiverseTweets(rankedCandidates, targetCount = STYLE_LANES.length) {
   const selected = [];
   const usedStyles = new Set();
 
@@ -294,10 +334,10 @@ export function selectDiverseTweets(rankedCandidates) {
   }
 
   for (const candidate of rankedCandidates) {
-    if (selected.length >= 5) break;
+    if (selected.length >= targetCount) break;
     if (selected.some((existing) => isDuplicate(existing.tweet, candidate.tweet, 0.62))) continue;
 
-    if (usedStyles.has(candidate.style) && selected.length < Math.min(5, STYLE_LANES.length)) {
+    if (usedStyles.has(candidate.style) && selected.length < Math.min(targetCount, STYLE_LANES.length)) {
       const missingStyles = STYLE_LANES.some((style) => !usedStyles.has(style));
       if (missingStyles) continue;
     }
@@ -307,7 +347,7 @@ export function selectDiverseTweets(rankedCandidates) {
   }
 
   for (const style of STYLE_LANES) {
-    if (selected.length >= 5) break;
+    if (selected.length >= targetCount) break;
     if (usedStyles.has(style)) continue;
 
     const match = rankedCandidates.find((candidate) =>
@@ -323,7 +363,7 @@ export function selectDiverseTweets(rankedCandidates) {
   }
 
   for (const style of STYLE_LANES) {
-    if (selected.length >= 5) break;
+    if (selected.length >= targetCount) break;
     if (usedStyles.has(style)) continue;
 
     const match = rankedCandidates.find((candidate) => candidate.style === style && !selected.includes(candidate));
@@ -334,7 +374,7 @@ export function selectDiverseTweets(rankedCandidates) {
   }
 
   for (const candidate of rankedCandidates) {
-    if (selected.length >= 5) break;
+    if (selected.length >= targetCount) break;
     if (selected.includes(candidate)) continue;
     if (selected.some((existing) => isDuplicate(existing.tweet, candidate.tweet, 0.86))) continue;
 
@@ -343,14 +383,14 @@ export function selectDiverseTweets(rankedCandidates) {
   }
 
   for (const candidate of rankedCandidates) {
-    if (selected.length >= 5) break;
+    if (selected.length >= targetCount) break;
     if (!selected.includes(candidate)) {
       selected.push(candidate);
     }
   }
 
   return selected
-    .slice(0, 5)
+    .slice(0, targetCount)
     .sort((a, b) => STYLE_LANES.indexOf(a.style) - STYLE_LANES.indexOf(b.style));
 }
 
@@ -368,6 +408,107 @@ function normalizeCandidate(candidate) {
 function normalizeStyle(style) {
   const normalized = normalizeWhitespace(String(style || '')).toLowerCase();
   return STYLE_ALIASES.get(normalized) || STYLE_LANES.find((lane) => lane.toLowerCase() === normalized) || null;
+}
+
+function extractSourceInsights(sourceText) {
+  const source = normalizeWhitespace(String(sourceText || ''));
+  const entities = extractEntities(source);
+  const dates = extractDatesAndDeadlines(source);
+  const numbers = extractNumbers(source);
+
+  return {
+    hasSource: source.length > 0,
+    entities,
+    dates,
+    numbers,
+    concreteTerms: [...new Set([...entities, ...dates, ...numbers])],
+  };
+}
+
+function extractEntities(source) {
+  const entities = new Set();
+
+  for (const match of source.matchAll(/\b(?:[A-Z][a-zA-Z0-9&.'-]{2,})(?:\s+(?:[A-Z][a-zA-Z0-9&.'-]{2,}|of|and|the|for|to)){0,5}/g)) {
+    const value = cleanSourceTerm(match[0]);
+    if (isUsefulSourceTerm(value)) entities.add(value);
+  }
+
+  for (const match of source.matchAll(/\b[A-Z]{2,}(?:-[A-Z0-9]+)?\b/g)) {
+    const value = cleanSourceTerm(match[0]);
+    if (isUsefulSourceTerm(value)) entities.add(value);
+  }
+
+  return [...entities].slice(0, 18);
+}
+
+function extractDatesAndDeadlines(source) {
+  const dates = new Set();
+  const patterns = [
+    /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:,\s*\d{4})?\b/gi,
+    /\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?(?:\s+\d{4})?\b/gi,
+    /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/g,
+    /\b(?:19|20)\d{2}\b/g,
+    /\b(?:today|tomorrow|yesterday|deadline|hearing|vote|trial|launch|release)\b/gi,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      dates.add(cleanSourceTerm(match[0]));
+    }
+  }
+
+  return [...dates].slice(0, 12);
+}
+
+function extractNumbers(source) {
+  const numbers = new Set();
+
+  for (const match of source.matchAll(/\b\$?\d+(?:[.,]\d+)*(?:\s?(?:million|billion|trillion|k|m|bn|%|percent))?\b/gi)) {
+    numbers.add(cleanSourceTerm(match[0]));
+  }
+
+  return [...numbers].slice(0, 12);
+}
+
+function cleanSourceTerm(value) {
+  return normalizeWhitespace(value)
+    .replace(/^[^a-zA-Z0-9$]+|[^a-zA-Z0-9.%]+$/g, '')
+    .trim();
+}
+
+function isUsefulSourceTerm(value) {
+  if (!value || value.length < 3) return false;
+  if (/^(The|This|That|And|But|For|With|From|Your|You|They|Their|There|Here|What|When|Where|Why|How|Raw Text)$/i.test(value)) return false;
+  return true;
+}
+
+function sourceContextScore(tweet, sourceInsights) {
+  if (!sourceInsights.hasSource) return 0;
+
+  const lowerTweet = tweet.toLowerCase();
+  const matchedConcrete = sourceInsights.concreteTerms.filter((term) => lowerTweet.includes(term.toLowerCase())).length;
+  const matchedEntities = sourceInsights.entities.filter((term) => lowerTweet.includes(term.toLowerCase())).length;
+  const matchedDates = sourceInsights.dates.filter((term) => lowerTweet.includes(term.toLowerCase())).length;
+  const matchedNumbers = sourceInsights.numbers.filter((term) => lowerTweet.includes(term.toLowerCase())).length;
+
+  return Math.min(24, matchedConcrete * 5 + matchedEntities * 3 + matchedDates * 4 + matchedNumbers * 3);
+}
+
+function vagueRewritePenalty(tweet, lower, sourceInsights) {
+  let penalty = 0;
+  const wordCount = (lower.match(/[a-z0-9']+/g) || []).length;
+
+  if (wordCount < 7) penalty += 10;
+  if (tweet.length < 60) penalty += 6;
+  if (countMatches(lower, GENERIC_SOCIAL_PHRASES) > 0) penalty += 12;
+  if (/\b(truth|secrecy|controversy|tension|deadline|matter|matters)\b/i.test(tweet) && tweet.length < 90) penalty += 7;
+
+  if (sourceInsights.hasSource && sourceInsights.concreteTerms.length > 0) {
+    const matchedConcrete = sourceInsights.concreteTerms.some((term) => lower.includes(term.toLowerCase()));
+    if (!matchedConcrete) penalty += 10;
+  }
+
+  return penalty;
 }
 
 function parseJsonArray(raw) {

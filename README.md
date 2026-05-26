@@ -1,6 +1,6 @@
 # IdeaBird - Screenshot -> Tweet Formatter
 
-Upload a screenshot, extract text via OCR, then generate **5 tweet variations** using **NVIDIA NIM**.
+Upload a screenshot, extract text via OCR, then generate **7 social-ready rewrite styles** using **NVIDIA NIM**.
 
 ## Features
 
@@ -19,7 +19,7 @@ Upload a screenshot, extract text via OCR, then generate **5 tweet variations** 
 - `index.html`, `main.js`, `style.css`: frontend UI, OCR, results rendering
 - `server/index.js`: Express API (`POST /api/generate`)
 - `server/prompt.js`: system prompt and user prompt builder for the model
-- `server/tweetPipeline.js`: parses 20 internal candidates, scores quality, removes weak/duplicate tweets, and selects the best 5
+- `server/tweetPipeline.js`: parses 14 internal candidates, scores quality, removes weak/duplicate rewrites, and selects the best 7
 
 ## Setup
 
@@ -38,8 +38,9 @@ NVIDIA_API_KEY=your_key_here
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
 NVIDIA_MODEL=meta/llama-3.3-70b-instruct
 NVIDIA_FALLBACK_MODELS=nvidia/llama-3.3-nemotron-super-49b-v1
-NVIDIA_TIMEOUT_MS=45000
-NVIDIA_MODEL_ATTEMPTS=2
+NVIDIA_TIMEOUT_MS=30000
+NVIDIA_MODEL_ATTEMPTS=1
+NVIDIA_MAX_TOKENS=1600
 PORT=3001
 ```
 
@@ -49,8 +50,9 @@ Notes:
 - **`NVIDIA_BASE_URL`** defaults to `https://integrate.api.nvidia.com/v1`.
 - **`NVIDIA_MODEL`** defaults to `meta/llama-3.3-70b-instruct`.
 - **`NVIDIA_FALLBACK_MODELS`** is an optional comma-separated list tried when the primary model fails.
-- **`NVIDIA_TIMEOUT_MS`** defaults to `45000`.
-- **`NVIDIA_MODEL_ATTEMPTS`** defaults to `2`.
+- **`NVIDIA_TIMEOUT_MS`** defaults to `30000`.
+- **`NVIDIA_MODEL_ATTEMPTS`** defaults to `1`.
+- **`NVIDIA_MAX_TOKENS`** defaults to `1600`.
 - **`PORT`** defaults to `3001`.
 
 Security note: never commit real API keys. If a committed env example ever contains a real key, rotate it and replace it with a placeholder.
@@ -117,9 +119,9 @@ Validation:
 
 - Rejects empty text
 - Rejects input longer than **10,000 characters**
-- Generates a private pool of **20 tweet candidates**
+- Generates a private pool of **14 rewrite candidates**
 - Scores each candidate for human-likeness, emotional impact, originality, punchiness, and Twitter/X-native style
-- Returns only the best **5 diverse tweet objects**, each with `style` and `tweet`
+- Returns only the best **7 diverse rewrite objects**, each with `style` and `tweet`
 
 ## Troubleshooting
 

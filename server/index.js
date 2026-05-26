@@ -8,8 +8,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const NVIDIA_BASE_URL = (process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
 const API_KEY = process.env.NVIDIA_API_KEY || process.env.NIM_API_KEY || process.env.GEMINI_API_KEY;
-const REQUEST_TIMEOUT_MS = Number(process.env.NVIDIA_TIMEOUT_MS || 45000);
-const MODEL_ATTEMPTS = Number(process.env.NVIDIA_MODEL_ATTEMPTS || 2);
+const REQUEST_TIMEOUT_MS = Number(process.env.NVIDIA_TIMEOUT_MS || 30000);
+const MODEL_ATTEMPTS = Number(process.env.NVIDIA_MODEL_ATTEMPTS || 1);
+const MAX_OUTPUT_TOKENS = Number(process.env.NVIDIA_MAX_TOKENS || 1600);
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -37,7 +38,7 @@ async function generateTweetsWithFallback(text) {
         console.log(`[IdeaBird] Trying model: ${modelName} (attempt ${attempt}/${MODEL_ATTEMPTS})`);
 
         const raw = await requestModel(text, modelName, attempt);
-        const result = buildTweetPipeline(raw);
+        const result = buildTweetPipeline(raw, text);
 
         console.log(
           `[IdeaBird] Pipeline: ${result.diagnostics.generated} generated, ${result.diagnostics.ranked} ranked, ${result.diagnostics.selected} selected`
@@ -78,8 +79,8 @@ async function requestModel(text, modelName, attempt) {
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: buildUserMessage(text) },
         ],
-        temperature: attempt === 1 ? 0.82 : 0.72,
-        max_tokens: 2600,
+        temperature: attempt === 1 ? 0.72 : 0.64,
+        max_tokens: MAX_OUTPUT_TOKENS,
       }),
     });
 
