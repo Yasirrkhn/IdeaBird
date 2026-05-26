@@ -2,11 +2,14 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { SYSTEM_PROMPT, buildUserMessage } from './prompt.js';
+import { buildTweetPipeline } from './tweetPipeline.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const NVIDIA_BASE_URL = (process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
 const API_KEY = process.env.NVIDIA_API_KEY || process.env.NIM_API_KEY || process.env.GEMINI_API_KEY;
+const REQUEST_TIMEOUT_MS = Number(process.env.NVIDIA_TIMEOUT_MS || 45000);
+const MODEL_ATTEMPTS = Number(process.env.NVIDIA_MODEL_ATTEMPTS || 2);
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -17,7 +20,7 @@ if (!API_KEY) {
 }
 
 const configuredModels = [
-  process.env.NVIDIA_MODEL || 'nvidia/llama-3.3-nemotron-super-49b-v1',
+  process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct',
   ...(process.env.NVIDIA_FALLBACK_MODELS || '')
     .split(',')
     .map((model) => model.trim())
@@ -25,174 +28,95 @@ const configuredModels = [
 ];
 const MODEL_CANDIDATES = [...new Set(configuredModels)];
 
-async function generateWithFallback(text) {
+async function generateTweetsWithFallback(text) {
   let lastError = null;
 
   for (const modelName of MODEL_CANDIDATES) {
-    try {
-      console.log(`[IdeaBird] Trying model: ${modelName}`);
+    for (let attempt = 1; attempt <= MODEL_ATTEMPTS; attempt += 1) {
+      try {
+        console.log(`[IdeaBird] Trying model: ${modelName} (attempt ${attempt}/${MODEL_ATTEMPTS})`);
 
-      const response = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${API_KEY}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: buildUserMessage(text) },
-          ],
-          temperature: 0.9,
-          max_tokens: 2048,
-        }),
-      });
+        const raw = await requestModel(text, modelName, attempt);
+        const result = buildTweetPipeline(raw);
 
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const message = payload.error?.message || payload.detail || response.statusText || 'NVIDIA NIM request failed';
-        const error = new Error(message);
-        error.status = response.status;
-        throw error;
+        console.log(
+          `[IdeaBird] Pipeline: ${result.diagnostics.generated} generated, ${result.diagnostics.ranked} ranked, ${result.diagnostics.selected} selected`
+        );
+        console.log(`[IdeaBird] Success with ${modelName}`);
+
+        return { ...result, model: modelName };
+      } catch (err) {
+        console.error(`[IdeaBird] ${modelName} attempt ${attempt} failed: ${err.status || ''} ${err.message?.substring(0, 140)}`);
+        lastError = err;
+
+        if (!shouldRetry(err) && attempt === 1) {
+          break;
+        }
       }
-
-      const raw = payload.choices?.[0]?.message?.content;
-      if (!raw) {
-        throw new Error('NVIDIA NIM returned an empty response.');
-      }
-
-      console.log(`[IdeaBird] Success with ${modelName}`);
-      return { raw, model: modelName };
-    } catch (err) {
-      console.error(`[IdeaBird] ${modelName} failed: ${err.status || ''} ${err.message?.substring(0, 120)}`);
-      lastError = err;
-
-      if ([404, 429, 503].includes(err.status)) {
-        continue;
-      }
-
-      throw err;
     }
   }
 
   throw lastError;
 }
 
-function escapeControlCharsInJsonStrings(value) {
-  let output = '';
-  let inString = false;
-  let escaped = false;
+async function requestModel(text, modelName, attempt) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  for (const char of value) {
-    if (escaped) {
-      output += char;
-      escaped = false;
-      continue;
+  try {
+    const response = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${API_KEY}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        model: modelName,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: buildUserMessage(text) },
+        ],
+        temperature: attempt === 1 ? 0.82 : 0.72,
+        max_tokens: 2600,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload.error?.message || payload.detail || response.statusText || 'NVIDIA NIM request failed';
+      const error = new Error(message);
+      error.status = response.status;
+      throw error;
     }
 
-    if (char === '\\') {
-      output += char;
-      escaped = inString;
-      continue;
+    const raw = payload.choices?.[0]?.message?.content;
+    if (!raw) {
+      const error = new Error('NVIDIA NIM returned an empty response.');
+      error.retryable = true;
+      throw error;
     }
 
-    if (char === '"') {
-      inString = !inString;
-      output += char;
-      continue;
+    return raw;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const timeoutError = new Error('NVIDIA NIM timed out. Retrying with a faster attempt.');
+      timeoutError.status = 504;
+      timeoutError.retryable = true;
+      throw timeoutError;
     }
 
-    if (inString) {
-      if (char === '\n') {
-        output += '\\n';
-        continue;
-      }
-      if (char === '\r') {
-        output += '\\r';
-        continue;
-      }
-      if (char === '\t') {
-        output += '\\t';
-        continue;
-      }
-    }
-
-    output += char;
+    throw err;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return output;
 }
 
-function extractFirstJsonArray(value) {
-  const start = value.indexOf('[');
-  if (start === -1) {
-    return null;
-  }
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let index = start; index < value.length; index += 1) {
-    const char = value[index];
-
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-
-    if (char === '\\') {
-      escaped = inString;
-      continue;
-    }
-
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) {
-      continue;
-    }
-
-    if (char === '[') {
-      depth += 1;
-    } else if (char === ']') {
-      depth -= 1;
-      if (depth === 0) {
-        return value.slice(start, index + 1);
-      }
-    }
-  }
-
-  return null;
-}
-
-function parseTweetVariations(raw) {
-  const candidates = [raw];
-  const array = extractFirstJsonArray(raw);
-  if (array && array !== raw) {
-    candidates.push(array);
-  }
-
-  let lastError = null;
-  for (const candidate of candidates) {
-    try {
-      return JSON.parse(candidate);
-    } catch (err) {
-      lastError = err;
-    }
-
-    try {
-      return JSON.parse(escapeControlCharsInJsonStrings(candidate));
-    } catch (err) {
-      lastError = err;
-    }
-  }
-
-  throw lastError || new Error('Could not parse tweet variations from AI response.');
+function shouldRetry(err) {
+  if (err.retryable) return true;
+  if ([408, 429, 500, 502, 503, 504].includes(err.status)) return true;
+  return /parse|json|select|empty|network|fetch|terminated|timeout/i.test(err.message || '');
 }
 
 app.post('/api/generate', async (req, res) => {
@@ -207,18 +131,7 @@ app.post('/api/generate', async (req, res) => {
   }
 
   try {
-    const { raw, model } = await generateWithFallback(text.trim());
-    const tweets = parseTweetVariations(raw);
-
-    if (!Array.isArray(tweets) || tweets.length !== 5) {
-      throw new Error('Expected exactly 5 tweet variations.');
-    }
-
-    for (const t of tweets) {
-      if (!t.style || !t.tweet) {
-        throw new Error('Each variation must have a style and tweet field.');
-      }
-    }
+    const { tweets, model } = await generateTweetsWithFallback(text.trim());
 
     return res.json({ tweets, model });
   } catch (err) {

@@ -31,7 +31,7 @@
   --radius-xl: 18px;
 
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-display: 'Montserrat', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Ubuntu', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --transition: 180ms ease;
 }
 
@@ -206,6 +206,16 @@ svg {
   display: block;
 }
 
+.workspace {
+  display: grid;
+  gap: 28px;
+}
+
+.workspace-copy {
+  display: grid;
+  gap: 10px;
+}
+
 @keyframes fadeSlideIn {
   from {
     opacity: 0;
@@ -248,7 +258,9 @@ svg {
 }
 
 .step-header h1,
-.step-header h2 {
+.step-header h2,
+.upload-text,
+.brand-name {
   max-width: 760px;
   font-family: var(--font-display);
   font-weight: 800;
@@ -266,7 +278,7 @@ svg {
 
 .step-desc {
   max-width: 650px;
-  margin-top: 16px;
+  margin-top: 0;
   color: var(--text-secondary);
   font-size: 1.02rem;
 }
@@ -275,6 +287,7 @@ svg {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  margin-top: 28px;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
@@ -309,7 +322,7 @@ svg {
 .upload-zone {
   position: relative;
   overflow: hidden;
-  min-height: 410px;
+  min-height: 280px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   cursor: pointer;
@@ -329,16 +342,6 @@ svg {
   pointer-events: none;
 }
 
-.upload-zone::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(120deg, transparent 0 38%, rgba(0, 119, 255, 0.08) 38% 39%, transparent 39% 100%),
-    linear-gradient(120deg, transparent 0 58%, rgba(15, 23, 42, 0.05) 58% 59%, transparent 59% 100%);
-}
-
 .upload-zone:hover,
 .upload-zone.drag-over {
   border-color: rgba(0, 119, 255, 0.42);
@@ -349,32 +352,34 @@ svg {
 .upload-zone-content {
   position: relative;
   z-index: 1;
-  min-height: 410px;
+  min-height: 280px;
   display: grid;
   place-items: center;
   align-content: center;
   gap: 18px;
-  padding: 42px 34px;
+  padding: 28px 28px;
   text-align: center;
 }
 
 .upload-icon {
-  width: 72px;
-  height: 72px;
+  width: 56px;
+  height: 56px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(0, 119, 255, 0.18);
-  border-radius: var(--radius-lg);
-  color: var(--accent-blue);
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: var(--shadow-sm);
+}
+
+.upload-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
 }
 
 .upload-text {
   font-family: var(--font-display);
-  font-size: 1.45rem;
-  font-weight: 800;
+  font-size: 1.08rem;
+  font-weight: 700;
 }
 
 .upload-subtext {
@@ -828,6 +833,14 @@ svg {
 
   .main {
     padding: 30px 16px 68px;
+  }
+
+  .workspace {
+    gap: 20px;
+  }
+
+  .signal-panel {
+    margin-top: 20px;
   }
 
   .step-header h1 {

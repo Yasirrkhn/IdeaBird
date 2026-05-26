@@ -38,6 +38,63 @@ function showToast(message, type = 'success', duration = 3000) {
   setTimeout(() => { toast.className = 'toast'; }, duration);
 }
 
+async function readApiJson(res) {
+  const body = await res.text();
+  if (!body) return {};
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    const preview = body.replace(/\s+/g, ' ').trim().slice(0, 120);
+
+    if (res.status === 404 || preview.toLowerCase().includes('page could not be found')) {
+      throw new Error('IdeaBird API was not found. Run the full app with npm run dev so the backend starts too.');
+    }
+
+    if (preview.toLowerCase().includes('connect') || preview.toLowerCase().includes('econnrefused')) {
+      throw new Error('IdeaBird backend is not running. Start it with npm run dev:server or use npm run dev.');
+    }
+
+    throw new Error('IdeaBird received an invalid API response. Make sure the backend is running on http://localhost:3001.');
+  }
+}
+
+async function postGenerateRequest(text) {
+  const urls = ['/api/generate'];
+
+  if (window.location.hostname !== 'localhost' || window.location.port !== '3001') {
+    urls.push('http://localhost:3001/api/generate');
+  }
+
+  const failures = [];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      const data = await readApiJson(res);
+      return { res, data };
+    } catch (err) {
+      failures.push(err);
+    }
+  }
+
+  const networkFailure = failures.find((err) =>
+    err instanceof TypeError ||
+    /failed to fetch|networkerror|load failed/i.test(err.message || '')
+  );
+
+  if (networkFailure) {
+    throw new Error('IdeaBird backend is not running. Start the full app with npm run dev, then try Generate again.');
+  }
+
+  throw failures[failures.length - 1] || new Error('Failed to generate tweets.');
+}
+
 // --- File Validation ---
 function validateFile(file) {
   if (!file) return false;
@@ -160,16 +217,14 @@ async function generateTweets() {
   generatingOverlay.classList.add('active');
 
   try {
-    const res = await fetch('/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-
-    const data = await res.json();
+    const { res, data } = await postGenerateRequest(text);
 
     if (!res.ok) {
       throw new Error(data.error || 'Failed to generate tweets');
+    }
+
+    if (!Array.isArray(data.tweets)) {
+      throw new Error('IdeaBird did not receive tweet variations from the backend.');
     }
 
     renderTweets(data.tweets);
