@@ -69,8 +69,9 @@ async function readApiJson(res) {
 
 async function postGenerateRequest(text) {
   const urls = ['/api/generate'];
+  const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
-  if (window.location.hostname !== 'localhost' || window.location.port !== '3001') {
+  if (isLocalHost && window.location.port !== '3001') {
     urls.push('http://localhost:3001/api/generate');
   }
 
@@ -97,7 +98,11 @@ async function postGenerateRequest(text) {
   );
 
   if (networkFailure) {
-    throw new Error('IdeaBird backend is not running. Start the full app with npm run dev, then try Generate again.');
+    throw new Error(
+      isLocalHost
+        ? 'IdeaBird backend is not running. Start the full app with npm run dev, then try Generate again.'
+        : 'IdeaBird API is not reachable. Check the Vercel deployment and environment variables.'
+    );
   }
 
   throw failures[failures.length - 1] || new Error('Failed to generate tweets.');

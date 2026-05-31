@@ -88,7 +88,24 @@ npm run build
 npm run preview
 ```
 
-`preview` serves the built frontend only. If you want generation to work in production, you must also run the API server and ensure the frontend can reach it.
+`preview` serves the built frontend only. For local generation, run `npm run dev` so the Express API runs too.
+
+## Vercel Deployment
+
+This project includes a serverless API route at `api/generate.js`, so the deployed frontend can call `/api/generate` on the same Vercel domain.
+
+In Vercel, add these Environment Variables before redeploying:
+
+```env
+NVIDIA_API_KEY=your_key_here
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_MODEL=meta/llama-3.3-70b-instruct
+NVIDIA_TIMEOUT_MS=30000
+NVIDIA_MODEL_ATTEMPTS=1
+NVIDIA_MAX_TOKENS=1600
+```
+
+Only `NVIDIA_API_KEY` is required. The rest have defaults.
 
 ## API
 
@@ -105,11 +122,13 @@ Response:
 ```json
 {
   "tweets": [
-    { "style": "Hot Take", "tweet": "..." },
-    { "style": "Thread Starter", "tweet": "..." },
-    { "style": "Storyteller", "tweet": "..." },
-    { "style": "Authority", "tweet": "..." },
-    { "style": "Minimalist", "tweet": "..." }
+    { "style": "Clear Rewrite", "tweet": "..." },
+    { "style": "Neutral Summary", "tweet": "..." },
+    { "style": "Viral Framing", "tweet": "..." },
+    { "style": "Emotional Framing", "tweet": "..." },
+    { "style": "News Style", "tweet": "..." },
+    { "style": "Contrarian Angle", "tweet": "..." },
+    { "style": "Simplified Explanation", "tweet": "..." }
   ],
   "model": "nvidia/..."
 }
