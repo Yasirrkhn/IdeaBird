@@ -139,24 +139,22 @@ const NATURAL_OPENERS = [
 ];
 
 const STYLE_ALIASES = new Map([
-  ['clear', 'Clear Rewrite'],
-  ['clear rewrite', 'Clear Rewrite'],
-  ['rewrite', 'Clear Rewrite'],
-  ['neutral', 'Neutral Summary'],
-  ['neutral summary', 'Neutral Summary'],
-  ['summary', 'Neutral Summary'],
-  ['viral', 'Viral Framing'],
-  ['viral framing', 'Viral Framing'],
-  ['emotional', 'Emotional Framing'],
-  ['emotional framing', 'Emotional Framing'],
-  ['news', 'News Style'],
-  ['news style', 'News Style'],
-  ['contrarian', 'Contrarian Angle'],
-  ['contrarian angle', 'Contrarian Angle'],
-  ['hot take', 'Contrarian Angle'],
-  ['simplified', 'Simplified Explanation'],
-  ['simple', 'Simplified Explanation'],
-  ['simplified explanation', 'Simplified Explanation'],
+  ['hot take', 'Hot Take Tweet'],
+  ['hot take tweet', 'Hot Take Tweet'],
+  ['hot-take tweet', 'Hot Take Tweet'],
+  ['question', 'Question Tweet'],
+  ['question tweet', 'Question Tweet'],
+  ['question-based tweet', 'Question Tweet'],
+  ['stat', 'Stat-Lead Tweet'],
+  ['stat tweet', 'Stat-Lead Tweet'],
+  ['stat-led tweet', 'Stat-Lead Tweet'],
+  ['stat-lead tweet', 'Stat-Lead Tweet'],
+  ['fact-led tweet', 'Stat-Lead Tweet'],
+  ['thread', 'Thread'],
+  ['ready-to-post thread', 'Thread'],
+  ['linkedin', 'LinkedIn Version'],
+  ['linkedin version', 'LinkedIn Version'],
+  ['linkedin post', 'LinkedIn Version'],
 ]);
 
 export function buildTweetPipeline(rawModelOutput, sourceText = '') {
@@ -224,6 +222,8 @@ export function evaluateTweet(candidate, allCandidates = [], sourceInsights = ex
   const lower = tweet.toLowerCase();
   const words = lower.match(/[a-z0-9']+/g) || [];
   const wordCount = words.length;
+  const longForm = isLongFormStyle(candidate.style);
+  const maxLength = contentMaxLength(candidate.style);
   const sentenceCount = Math.max(1, (tweet.match(/[.!?]+/g) || []).length);
   const avgSentenceLength = wordCount / sentenceCount;
   const realismScore = controlledImperfectionScore(tweet, lower, words);
@@ -242,8 +242,8 @@ export function evaluateTweet(candidate, allCandidates = [], sourceInsights = ex
     22 +
     (/\b(i|you|we|me|us|your|my)\b/i.test(tweet) ? 8 : 0) +
     (/\b(can't|don't|isn't|won't|you're|i'm|we're|they're|that's)\b/i.test(tweet) ? 6 : 0) +
-    (avgSentenceLength <= 13 ? 7 : 0) +
-    (wordCount >= 8 && wordCount <= 38 ? 7 : 0) +
+    (avgSentenceLength <= (longForm ? 18 : 13) ? 7 : 0) +
+    (wordCount >= 8 && wordCount <= (longForm ? 260 : 38) ? 7 : 0) +
     realismScore -
     phrasePenalty * 0.35;
 
@@ -253,7 +253,7 @@ export function evaluateTweet(candidate, allCandidates = [], sourceInsights = ex
     (/[?]/.test(tweet) ? 3 : 0) +
     (/\bbut\b|\bstill\b|\bnever\b|\balmost\b|\bafraid\b|\bhate\b|\bscared\b/i.test(tweet) ? 7 : 0) +
     (/\b(feels?|hurt|tired|want|hate|scared)\b/i.test(tweet) ? 5 : 0) -
-    (wordCount > 45 ? 7 : 0);
+    (wordCount > (longForm ? 260 : 45) ? 7 : 0);
 
   const originality =
     16 +
@@ -265,31 +265,33 @@ export function evaluateTweet(candidate, allCandidates = [], sourceInsights = ex
 
   const punchiness =
     18 +
-    (tweet.length >= 60 && tweet.length <= 220 ? 11 : 0) +
-    (tweet.length <= 180 ? 5 : 0) +
-    (avgSentenceLength <= 11 ? 7 : 0) -
-    (tweet.length > 240 ? 14 : 0) -
+    (tweet.length >= 60 && tweet.length <= (longForm ? maxLength : 220) ? 11 : 0) +
+    (!longForm && tweet.length <= 180 ? 5 : 0) +
+    (longForm && hasNumberedFlow(tweet) ? 8 : 0) +
+    (avgSentenceLength <= (longForm ? 18 : 11) ? 7 : 0) -
+    (tweet.length > maxLength ? 18 : 0) -
     (tweet.length < 45 ? 10 : 0) -
-    (wordCount > 52 ? 10 : 0) -
-    (tweet.includes(':') && candidate.style !== 'News Style' ? 3 : 0);
+    (wordCount > (longForm ? 280 : 52) ? 10 : 0) -
+    (tweet.includes(':') && !longForm ? 3 : 0);
 
   const platformNative =
     18 +
     (!tweet.includes('#') ? 5 : -12) +
     (!/https?:\/\//i.test(tweet) ? 4 : -12) +
     (countEmoji(tweet) <= 1 ? 3 : -8) +
-    (tweet.length <= 220 ? 5 : 0) +
+    (tweet.length <= maxLength ? 5 : 0) +
     (startsNaturally(lower) ? 5 : 0) -
     phrasePenalty * 0.4;
 
   const rejected =
     tweet.length === 0 ||
-    tweet.length > 280 ||
+    tweet.length > maxLength ||
     tweet.length < 35 ||
     phrasePenalty >= 28 ||
     vaguenessPenalty >= 18 ||
-    looksLikeLinkedIn(lower) ||
-    overExplains(tweet);
+    (candidate.style !== 'LinkedIn Version' && looksLikeLinkedIn(lower)) ||
+    (!longForm && overExplains(tweet)) ||
+    (candidate.style === 'Thread' && !hasNumberedFlow(tweet));
 
   return {
     total: Math.round(
@@ -408,6 +410,26 @@ function normalizeCandidate(candidate) {
 function normalizeStyle(style) {
   const normalized = normalizeWhitespace(String(style || '')).toLowerCase();
   return STYLE_ALIASES.get(normalized) || STYLE_LANES.find((lane) => lane.toLowerCase() === normalized) || null;
+}
+
+function isLongFormStyle(style) {
+  return style === 'Thread' || style === 'LinkedIn Version';
+}
+
+function contentMaxLength(style) {
+  if (style === 'Thread') return 1800;
+  if (style === 'LinkedIn Version') return 1400;
+  return 280;
+}
+
+function hasNumberedFlow(value) {
+  const lines = normalizeWhitespace(value)
+    .split(/\n|(?=\b\d+\.\s+)/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const numberedLines = lines.filter((line) => /^\d+\.\s+\S/.test(line));
+  return numberedLines.length >= 5;
 }
 
 function extractSourceInsights(sourceText) {

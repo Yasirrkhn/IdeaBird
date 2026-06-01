@@ -28,8 +28,17 @@ app.post('/api/generate', async (req, res) => {
   }
 
   try {
-    const { tweets, model } = await generateTweetsWithFallback(text.trim());
-    return res.json({ tweets, model });
+    const result = await generateTweetsWithFallback(text.trim());
+    if (result.status === 'policy_block') {
+      return res.json({
+        status: 'policy_block',
+        tweets: [],
+        error:
+          'IdeaBird does not generate amplified versions of unverified political allegations, conspiracy claims, or health misinformation.',
+      });
+    }
+
+    return res.json({ status: 'ok', tweets: result.tweets, model: result.model });
   } catch (err) {
     return sendGenerateError(res, err);
   }

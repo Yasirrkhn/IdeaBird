@@ -1,13 +1,14 @@
-# IdeaBird - Screenshot -> Tweet Formatter
+# IdeaBird - Screenshot -> Content Generator
 
-Upload a screenshot, extract text via OCR, then generate **7 social-ready rewrite styles** using **NVIDIA NIM**.
+Upload a screenshot, extract text via OCR, then generate **5 high-signal social content formats** using **NVIDIA NIM**.
 
 ## Features
 
 - **Screenshot upload**: drag/drop, click-to-browse, paste from clipboard
 - **OCR extraction** with `tesseract.js` in the browser
-- **Tweet generation** via an Express API calling NVIDIA NIM chat completions
-- Enforces **exactly 5 variations** and validates output shape
+- **Content generation** via an Express or Vercel API calling NVIDIA NIM chat completions
+- **Moderation pre-check** blocks misinformation amplification before generation
+- Generates a hot take tweet, question tweet, stat-lead tweet, thread, and LinkedIn version
 
 ## Tech Stack
 
@@ -19,7 +20,7 @@ Upload a screenshot, extract text via OCR, then generate **7 social-ready rewrit
 - `index.html`, `main.js`, `style.css`: frontend UI, OCR, results rendering
 - `server/index.js`: Express API (`POST /api/generate`)
 - `server/prompt.js`: system prompt and user prompt builder for the model
-- `server/tweetPipeline.js`: parses 14 internal candidates, scores quality, removes weak/duplicate rewrites, and selects the best 7
+- `server/tweetPipeline.js`: parses the model output, scores quality, removes weak/duplicate content, and selects the required 5 formats
 
 ## Setup
 
@@ -41,6 +42,7 @@ NVIDIA_FALLBACK_MODELS=nvidia/llama-3.3-nemotron-super-49b-v1
 NVIDIA_TIMEOUT_MS=30000
 NVIDIA_MODEL_ATTEMPTS=1
 NVIDIA_MAX_TOKENS=1600
+NVIDIA_MODERATION_MAX_TOKENS=8
 PORT=3001
 ```
 
@@ -53,6 +55,7 @@ Notes:
 - **`NVIDIA_TIMEOUT_MS`** defaults to `30000`.
 - **`NVIDIA_MODEL_ATTEMPTS`** defaults to `1`.
 - **`NVIDIA_MAX_TOKENS`** defaults to `1600`.
+- **`NVIDIA_MODERATION_MAX_TOKENS`** defaults to `8`.
 - **`PORT`** defaults to `3001`.
 
 Security note: never commit real API keys. If a committed env example ever contains a real key, rotate it and replace it with a placeholder.
@@ -103,6 +106,7 @@ NVIDIA_MODEL=meta/llama-3.3-70b-instruct
 NVIDIA_TIMEOUT_MS=30000
 NVIDIA_MODEL_ATTEMPTS=1
 NVIDIA_MAX_TOKENS=1600
+NVIDIA_MODERATION_MAX_TOKENS=8
 ```
 
 Only `NVIDIA_API_KEY` is required. The rest have defaults.
@@ -122,13 +126,11 @@ Response:
 ```json
 {
   "tweets": [
-    { "style": "Clear Rewrite", "tweet": "..." },
-    { "style": "Neutral Summary", "tweet": "..." },
-    { "style": "Viral Framing", "tweet": "..." },
-    { "style": "Emotional Framing", "tweet": "..." },
-    { "style": "News Style", "tweet": "..." },
-    { "style": "Contrarian Angle", "tweet": "..." },
-    { "style": "Simplified Explanation", "tweet": "..." }
+    { "style": "Hot Take Tweet", "tweet": "..." },
+    { "style": "Question Tweet", "tweet": "..." },
+    { "style": "Stat-Lead Tweet", "tweet": "..." },
+    { "style": "Thread", "tweet": "1. ...\\n2. ..." },
+    { "style": "LinkedIn Version", "tweet": "..." }
   ],
   "model": "nvidia/..."
 }
@@ -138,9 +140,15 @@ Validation:
 
 - Rejects empty text
 - Rejects input longer than **10,000 characters**
-- Generates a private pool of **14 rewrite candidates**
-- Scores each candidate for human-likeness, emotional impact, originality, punchiness, and Twitter/X-native style
-- Returns only the best **7 diverse rewrite objects**, each with `style` and `tweet`
+- Runs a moderation classifier before generation
+- Returns `status: "policy_block"` instead of generating amplified versions of unverified political allegations, conspiracy claims, or health misinformation
+- Generates exactly **5 post-ready content formats**
+- Scores each candidate for human-likeness, emotional impact, originality, punchiness, and platform-native style
+- Returns objects with `style` and `tweet`
+
+## Content Policy
+
+We don't generate amplified versions of unverified political allegations or health misinformation. The deployed app includes this policy in `public/terms.html`.
 
 ## Troubleshooting
 

@@ -6,6 +6,7 @@ const API_KEY = process.env.NVIDIA_API_KEY || process.env.NIM_API_KEY || process
 const REQUEST_TIMEOUT_MS = Number(process.env.NVIDIA_TIMEOUT_MS || 30000);
 const MODEL_ATTEMPTS = Number(process.env.NVIDIA_MODEL_ATTEMPTS || 1);
 const MAX_OUTPUT_TOKENS = Number(process.env.NVIDIA_MAX_TOKENS || 1600);
+const MODERATION_MAX_TOKENS = Number(process.env.NVIDIA_MODERATION_MAX_TOKENS || 8);
 
 const configuredModels = [
   process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct',
@@ -31,6 +32,17 @@ export function assertApiKey() {
 
 export async function generateTweetsWithFallback(text) {
   assertApiKey();
+
+  const moderation = await classifyContentPolicy(text);
+  if (moderation.blocked) {
+    console.log('[IdeaBird] Policy block: misinformation amplification risk');
+    return {
+      status: 'policy_block',
+      tweets: [],
+      moderation,
+    };
+  }
+
   let lastError = null;
 
   for (const modelName of MODEL_CANDIDATES) {
@@ -38,7 +50,7 @@ export async function generateTweetsWithFallback(text) {
       try {
         console.log(`[IdeaBird] Trying model: ${modelName} (attempt ${attempt}/${MODEL_ATTEMPTS})`);
 
-        const raw = await requestModel(text, modelName, attempt);
+        const raw = await requestGenerationModel(text, modelName, attempt);
         const result = buildTweetPipeline(raw, text);
 
         console.log(
@@ -46,7 +58,7 @@ export async function generateTweetsWithFallback(text) {
         );
         console.log(`[IdeaBird] Success with ${modelName}`);
 
-        return { ...result, model: modelName };
+        return { status: 'ok', ...result, model: modelName };
       } catch (err) {
         console.error(`[IdeaBird] ${modelName} attempt ${attempt} failed: ${err.status || ''} ${err.message?.substring(0, 140)}`);
         lastError = err;
@@ -61,7 +73,45 @@ export async function generateTweetsWithFallback(text) {
   throw lastError;
 }
 
-async function requestModel(text, modelName, attempt) {
+export async function classifyContentPolicy(text) {
+  const modelName = MODEL_CANDIDATES[0];
+  const raw = await requestChatCompletion({
+    modelName,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'Does this screenshot contain unverified allegations presented as fact, conspiracy claims, or content designed to spread misinformation? Return yes/no. Return only yes or no.',
+      },
+      {
+        role: 'user',
+        content: `Screenshot OCR text:\n---\n${text}\n---`,
+      },
+    ],
+    temperature: 0,
+    maxTokens: MODERATION_MAX_TOKENS,
+  });
+
+  const answer = raw.trim().toLowerCase();
+  return {
+    blocked: /^yes\b/.test(answer),
+    answer,
+  };
+}
+
+async function requestGenerationModel(text, modelName, attempt) {
+  return requestChatCompletion({
+    modelName,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: buildUserMessage(text) },
+    ],
+    temperature: attempt === 1 ? 0.72 : 0.64,
+    maxTokens: MAX_OUTPUT_TOKENS,
+  });
+}
+
+async function requestChatCompletion({ modelName, messages, temperature, maxTokens }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -76,12 +126,9 @@ async function requestModel(text, modelName, attempt) {
       },
       body: JSON.stringify({
         model: modelName,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserMessage(text) },
-        ],
-        temperature: attempt === 1 ? 0.72 : 0.64,
-        max_tokens: MAX_OUTPUT_TOKENS,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
       }),
     });
 

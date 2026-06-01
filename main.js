@@ -105,7 +105,7 @@ async function postGenerateRequest(text) {
     );
   }
 
-  throw failures[failures.length - 1] || new Error('Failed to generate tweets.');
+  throw failures[failures.length - 1] || new Error('Failed to generate content.');
 }
 
 // --- File Validation ---
@@ -233,18 +233,27 @@ async function generateTweets() {
     const { res, data } = await postGenerateRequest(text);
 
     if (!res.ok) {
-      throw new Error(data.error || 'Failed to generate tweets');
+      throw new Error(data.error || 'Failed to generate content');
+    }
+
+    if (data.status === 'policy_block') {
+      showToast(
+        data.error || 'IdeaBird cannot generate amplified versions of unverified allegations or misinformation.',
+        'error',
+        7000
+      );
+      return;
     }
 
     if (!Array.isArray(data.tweets)) {
-      throw new Error('IdeaBird did not receive tweet variations from the backend.');
+      throw new Error('IdeaBird did not receive content variations from the backend.');
     }
 
     renderTweets(data.tweets);
     goToStep(stepResults);
   } catch (err) {
     console.error('Generate error:', err);
-    showToast(err.message || 'Failed to generate tweets. Please try again.', 'error', 5000);
+    showToast(err.message || 'Failed to generate content. Please try again.', 'error', 5000);
   } finally {
     isGenerating = false;
     btnGenerate.disabled = extractedText.value.trim().length === 0;
@@ -265,12 +274,14 @@ function renderTweets(tweets) {
     card.style.opacity = '0';
 
     const len = t.tweet.length;
-    const overClass = len > 280 ? ' over' : '';
+    const maxLength = getContentMaxLength(t.style);
+    const overClass = len > maxLength ? ' over' : '';
+    const countLabel = maxLength === 280 ? `${len}/280` : `${len} chars`;
 
     card.innerHTML = `
       <div class="tweet-card-top">
         <span class="tweet-style-badge">${escapeHtml(t.style)}</span>
-        <span class="tweet-char-count${overClass}">${len}/280</span>
+        <span class="tweet-char-count${overClass}">${countLabel}</span>
       </div>
       <div class="tweet-text">${escapeHtml(t.tweet)}</div>
       <div class="tweet-card-bottom">
@@ -286,6 +297,12 @@ function renderTweets(tweets) {
 
     tweetsGrid.appendChild(card);
   });
+}
+
+function getContentMaxLength(style) {
+  if (style === 'Thread') return 1800;
+  if (style === 'LinkedIn Version') return 1400;
+  return 280;
 }
 
 // --- Copy ---

@@ -1,7 +1,7 @@
 {
   "name": "ideabird",
   "version": "1.0.0",
-  "description": "IdeaBird turns screenshot text into polished tweet variations with NVIDIA NIM.",
+  "description": "IdeaBird turns screenshot text into high-signal social content with NVIDIA NIM.",
   "type": "module",
   "scripts": {
     "dev": "concurrently --kill-others-on-fail \"node --watch server/index.js\" \"vite\"",

@@ -29,8 +29,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { tweets, model } = await generateTweetsWithFallback(text.trim());
-    return res.status(200).json({ tweets, model });
+    const result = await generateTweetsWithFallback(text.trim());
+    if (result.status === 'policy_block') {
+      return res.status(200).json({
+        status: 'policy_block',
+        tweets: [],
+        error:
+          'IdeaBird does not generate amplified versions of unverified political allegations, conspiracy claims, or health misinformation.',
+      });
+    }
+
+    return res.status(200).json({ status: 'ok', tweets: result.tweets, model: result.model });
   } catch (err) {
     return sendGenerateError(res, err);
   }
