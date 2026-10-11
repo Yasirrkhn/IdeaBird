@@ -3,13 +3,16 @@ import { buildTweetPipeline } from './tweetPipeline.js';
 
 const NVIDIA_BASE_URL = (process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
 const API_KEY = process.env.NVIDIA_API_KEY || process.env.NIM_API_KEY || process.env.GEMINI_API_KEY;
-const REQUEST_TIMEOUT_MS = Number(process.env.NVIDIA_TIMEOUT_MS || 30000);
+const REQUEST_TIMEOUT_MS = Number(process.env.NVIDIA_TIMEOUT_MS || 90000);
 const MODEL_ATTEMPTS = Number(process.env.NVIDIA_MODEL_ATTEMPTS || 1);
-const MAX_OUTPUT_TOKENS = Number(process.env.NVIDIA_MAX_TOKENS || 1600);
-const MODERATION_MAX_TOKENS = Number(process.env.NVIDIA_MODERATION_MAX_TOKENS || 8);
+// Reasoning models (gpt-oss, nemotron *-reasoning, deepseek, kimi) spend max_tokens on
+// hidden reasoning BEFORE emitting `content`. A small budget yields content:null with
+// finish_reason:"length" — an empty response, not a model failure. Budget for reasoning.
+const MAX_OUTPUT_TOKENS = Number(process.env.NVIDIA_MAX_TOKENS || 4096);
+const MODERATION_MAX_TOKENS = Number(process.env.NVIDIA_MODERATION_MAX_TOKENS || 2048);
 
 const configuredModels = [
-  process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct',
+  process.env.NVIDIA_MODEL || 'openai/gpt-oss-20b',
   ...(process.env.NVIDIA_FALLBACK_MODELS || '')
     .split(',')
     .map((model) => model.trim())
@@ -33,7 +36,15 @@ export function assertApiKey() {
 export async function generateTweetsWithFallback(text) {
   assertApiKey();
 
-  const moderation = await classifyContentPolicy(text);
+  const moderation = await classifyContentPolicy(text).catch((err) => {
+    // The guardrail is best-effort infrastructure, not the product. If the moderation
+    // call itself dies (dead model, timeout, quota) we must not block a legitimate
+    // request — log it loudly and continue.
+    console.error(
+      `[IdeaBird] Moderation check unavailable (${err.status || ''} ${err.message?.substring(0, 120)}) — continuing without it.`
+    );
+    return { blocked: false, answer: 'unavailable', error: err.message };
+  });
   if (moderation.blocked) {
     console.log('[IdeaBird] Policy block: misinformation amplification risk');
     return {
@@ -81,7 +92,7 @@ export async function classifyContentPolicy(text) {
       {
         role: 'system',
         content:
-          'Does this screenshot contain unverified allegations presented as fact, conspiracy claims, or content designed to spread misinformation? Return yes/no. Return only yes or no.',
+          'Does this screenshot contain unverified allegations presented as fact, conspiracy claims, or content designed to spread misinformation? Answer with exactly one word: yes or no. Do not explain.',
       },
       {
         role: 'user',
@@ -141,9 +152,19 @@ async function requestChatCompletion({ modelName, messages, temperature, maxToke
     }
 
     const raw = payload.choices?.[0]?.message?.content;
-    if (!raw) {
-      const error = new Error('NVIDIA NIM returned an empty response.');
+    if (!raw || !raw.trim()) {
+      const choice = payload.choices?.[0] || {};
+      const reason = choice.finish_reason || 'unknown';
+      // A reasoning model that exhausted max_tokens on hidden reasoning returns
+      // content:null with finish_reason:'length'. That is a token-budget problem,
+      // not a dead model — say so, and never mark it non-retryable.
+      const error = new Error(
+        reason === 'length'
+          ? `NVIDIA NIM returned an empty response: the model spent its whole ${maxTokens}-token budget on reasoning and never wrote output. Raise NVIDIA_MAX_TOKENS.`
+          : `NVIDIA NIM returned an empty response (finish_reason: ${reason}).`
+      );
       error.retryable = true;
+      error.emptyResponse = true;
       throw error;
     }
 
